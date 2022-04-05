@@ -34,34 +34,36 @@ class MotorControl:
     def set_duty_cycle(self, duty_cycle):
         self.pwm.ChangeDutyCycle(duty_cycle)
 
-# speed = 100
 dir = True
 mc_l = MotorControl(13,19,26,1024)
 mc_l.set_dir(dir)
 
-# mc_l.set_duty_cycle(speed / 2)
-
 mc_r = MotorControl(17,27,22,1024)
 mc_r.set_dir(dir)
-# mc_r.set_duty_cycle(speed)
 
 se = SpeedEncoder(20,21,23,24)
+
+N = 4
+# poll for sensor data
 def poll_sensors():
+    old_time = time()
     while 1:
         se.poll()
-speed_encoding_poller_thread = Thread(target=poll_sensors, args=[])
-speed_encoding_poller_thread.start()
+
+        #report sensor data N times per second
+        curr_time = time()
+        if curr_time - old_time > 1 / N:
+            print(f"hmm: {se.get_rot()}")
+            old_time = curr_time
+
+
+sensor_poller_thread = Thread(target=poll_sensors, args=[])
+sensor_poller_thread.start()
 
 
 turn = 0
 duty_cycle = 0
-old_time = time()
 while 1:
-    curr_time = time()
-    if curr_time - old_time > 1 / 10:
-        print(f"hmm: {se.get_rot()}")
-        old_time = curr_time
-
     events = get_gamepad()
     for event in events:
         if event.code == "ABS_RZ":
