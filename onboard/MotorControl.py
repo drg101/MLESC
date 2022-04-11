@@ -3,6 +3,7 @@ from inputs import devices, get_gamepad
 from SpeedEncoder import SpeedEncoder
 from threading import Thread
 from time import time
+import Accelerometer
 
 GPIO.setmode(GPIO.BCM)
 
@@ -43,7 +44,7 @@ mc_r.set_dir(dir)
 
 se = SpeedEncoder(20,21,23,24)
 
-N = 4
+N = 25
 # poll for sensor data
 def poll_sensors():
     old_time = time()
@@ -53,7 +54,13 @@ def poll_sensors():
         #report sensor data N times per second
         curr_time = time()
         if curr_time - old_time > 1 / N:
-            print(f"hmm: {se.get_rot()}")
+            acc = -1
+            try:
+                acc = Accelerometer.get()[1]
+            except:
+                pass
+            if acc > 0:
+                print(f"hmm: {se.get_rot()} accel = {acc}")
             old_time = curr_time
 
 
