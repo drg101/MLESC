@@ -9,6 +9,15 @@ import os
 
 MODE = 1
 
+if MODE == 1:
+    import tensorflow as tf
+    tf_model = tf.keras.models.load_model('../analyze/basic_model.h5')
+    converter = tf.lite.TFLiteConverter.from_keras_model(tf_model)
+    tflite_model = converter.convert()
+    tf_mode = None
+
+print(tflite_model)
+
 GPIO.setmode(GPIO.BCM)
 
 class MotorControl:
@@ -81,7 +90,8 @@ def poll_sensors():
             old_time = curr_time
         
         if MODE == 1:
-            print(requested_speed)
+            pass
+            # print(requested_speed)
 
 
 sensor_poller_thread = Thread(target=poll_sensors, args=[])
