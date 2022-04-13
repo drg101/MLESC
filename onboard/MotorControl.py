@@ -6,17 +6,22 @@ from time import time
 import Accelerometer
 from math import floor
 import os
+import numpy as np
 
-MODE = 1
+MODE = 2
 
 if MODE == 1:
-    import tensorflow as tf
-    tf_model = tf.keras.models.load_model('../analyze/basic_model.h5')
-    converter = tf.lite.TFLiteConverter.from_keras_model(tf_model)
-    tflite_model = converter.convert()
-    tf_mode = None
-
-print(tflite_model)
+    import tflite_runtime.interpreter as tflite
+    interpreter = tflite.Interpreter('../analyze/basic_model.tflite')
+    interpreter.allocate_tensors()
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+elif MODE == 2:
+    import tflite_runtime.interpreter as tflite
+    interpreter = tflite.Interpreter('../analyze/best_model_ever.tflite')
+    interpreter.allocate_tensors()
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
 
 GPIO.setmode(GPIO.BCM)
 
@@ -68,16 +73,23 @@ N = 30
 turn = 0
 duty_cycle = 0
 requested_speed = 0
+# acc = -999
 
 def poll_sensors():
+    global duty_cycle
     old_time = time()
+    speed = (0,0)
+
+    if MODE == 2:
+        LOOK_BACK = 5
+        prev_state = [[0,0,0] for _ in range(LOOK_BACK)]
+
     while 1:
         se.poll()
 
         #report sensor data N times per second
         curr_time = time()
         if curr_time - old_time > 1 / N:
-            acc = -999
             try:
                 acc = Accelerometer.get()[1]
             except:
@@ -89,8 +101,31 @@ def poll_sensors():
                 # f.flush()
             old_time = curr_time
         
-        if MODE == 1:
-            pass
+            if MODE == 1 or MODE == 2:
+                if turn == 0 and acc != -999:
+                    norm_acc = (acc + 4.02297436) / 8.75475849
+                    norm_speed = (((speed[0] + speed[1]) / 2) - 4.73178413) / 538.80656938
+                    norm_requested_speed = requested_speed
+                    norm_duty_cycle = duty_cycle / 100
+
+                    res = 0
+                    if MODE == 1:
+                        inp = np.array([[norm_acc,requested_speed]], dtype='float32')
+                        interpreter.set_tensor(input_details[0]['index'], inp)
+                        interpreter.invoke()
+                        res = interpreter.get_tensor(output_details[0]['index'])[0][0]
+                    elif MODE == 2:
+                        prev_state.pop(0)
+                        prev_state.append([norm_duty_cycle, norm_acc, norm_requested_speed])
+                        inp = np.array([prev_state], dtype='float32')
+                        interpreter.set_tensor(input_details[0]['index'], inp)
+                        interpreter.invoke()
+                        res = interpreter.get_tensor(output_details[0]['index'])[0][0]
+            
+                    duty_cycle = res * 100
+                    print(abs(norm_requested_speed - norm_speed) * 100)
+                mc_l.set_duty_cycle(duty_cycle * max(0,min(1, (1 + turn))))
+                mc_r.set_duty_cycle(duty_cycle * max(0,min(1, (1 - turn))))
             # print(requested_speed)
 
 
@@ -113,5 +148,6 @@ while 1:
             # print(se_l.get_rot())
             # print(f"LR: {new_turn}")
             turn = new_turn
-    mc_l.set_duty_cycle(duty_cycle * max(0,min(1, (1 + turn))))
-    mc_r.set_duty_cycle(duty_cycle * max(0,min(1, (1 - turn))))
+    if MODE == 0:
+        mc_l.set_duty_cycle(duty_cycle * max(0,min(1, (1 + turn))))
+        mc_r.set_duty_cycle(duty_cycle * max(0,min(1, (1 - turn))))
