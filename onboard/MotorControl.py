@@ -4,6 +4,10 @@ from SpeedEncoder import SpeedEncoder
 from threading import Thread
 from time import time
 import Accelerometer
+from math import floor
+import os
+
+MODE = 1
 
 GPIO.setmode(GPIO.BCM)
 
@@ -44,8 +48,18 @@ mc_r.set_dir(dir)
 
 se = SpeedEncoder(20,21,23,24)
 
-N = 25
+if MODE == 0:
+    if os.path.exists("./write.csv"):
+        os.remove("./write.csv") 
+    f = open("./write.csv", "a")
+    f.write("ts,duty_cycle,acc,speed_l,speed_r,speed_avg\n")
+
+N = 30
 # poll for sensor data
+turn = 0
+duty_cycle = 0
+requested_speed = 0
+
 def poll_sensors():
     old_time = time()
     while 1:
@@ -54,29 +68,36 @@ def poll_sensors():
         #report sensor data N times per second
         curr_time = time()
         if curr_time - old_time > 1 / N:
-            acc = -1
+            acc = -999
             try:
                 acc = Accelerometer.get()[1]
             except:
                 pass
-            if acc > 0:
-                print(f"hmm: {se.get_rot()} accel = {acc}")
+            if turn == 0 and acc != -999 and duty_cycle != 0:
+                # print(f"hmm: {se.get_rot()} accel = {acc}, {turn}, {duty_cycle}")
+                speed = se.get_rot()
+                # f.write(f"{floor(time()*1000)},{duty_cycle},{acc},{speed[0]},{speed[1]},{(speed[0] + speed[1]) / 2}\n")
+                # f.flush()
             old_time = curr_time
+        
+        if MODE == 1:
+            print(requested_speed)
 
 
 sensor_poller_thread = Thread(target=poll_sensors, args=[])
 sensor_poller_thread.start()
 
 
-turn = 0
-duty_cycle = 0
 while 1:
     events = get_gamepad()
     for event in events:
         if event.code == "ABS_RZ":
-            new_duty_cycle = round(event.state / 1023 * 100)
-            # print(f"nds {new_duty_cycle}")
-            duty_cycle = new_duty_cycle
+            if MODE == 0:
+                new_duty_cycle = round(event.state / 1023 * 100)
+                # print(f"nds {new_duty_cycle}")
+                duty_cycle = new_duty_cycle
+            if MODE == 1:
+                requested_speed = event.state / 1023
         elif event.code == "ABS_X":
             new_turn = event.state / 32768
             # print(se_l.get_rot())
