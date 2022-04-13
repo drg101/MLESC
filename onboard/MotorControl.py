@@ -1,5 +1,9 @@
 import RPi.GPIO as GPIO
 from inputs import devices, get_gamepad
+from SpeedEncoder import SpeedEncoder
+from threading import Thread
+from time import time
+import Accelerometer
 
 GPIO.setmode(GPIO.BCM)
 
@@ -31,15 +35,38 @@ class MotorControl:
     def set_duty_cycle(self, duty_cycle):
         self.pwm.ChangeDutyCycle(duty_cycle)
 
-# speed = 100
 dir = True
-mc_l = MotorControl(2,3,4,1024)
+mc_l = MotorControl(13,19,26,1024)
 mc_l.set_dir(dir)
-# mc_l.set_duty_cycle(speed / 2)
 
 mc_r = MotorControl(17,27,22,1024)
 mc_r.set_dir(dir)
-# mc_r.set_duty_cycle(speed)
+
+se = SpeedEncoder(20,21,23,24)
+
+N = 25
+# poll for sensor data
+def poll_sensors():
+    old_time = time()
+    while 1:
+        se.poll()
+
+        #report sensor data N times per second
+        curr_time = time()
+        if curr_time - old_time > 1 / N:
+            acc = -1
+            try:
+                acc = Accelerometer.get()[1]
+            except:
+                pass
+            if acc > 0:
+                print(f"hmm: {se.get_rot()} accel = {acc}")
+            old_time = curr_time
+
+
+sensor_poller_thread = Thread(target=poll_sensors, args=[])
+sensor_poller_thread.start()
+
 
 turn = 0
 duty_cycle = 0
@@ -48,11 +75,12 @@ while 1:
     for event in events:
         if event.code == "ABS_RZ":
             new_duty_cycle = round(event.state / 1023 * 100)
-            print(f"nds {new_duty_cycle}")
+            # print(f"nds {new_duty_cycle}")
             duty_cycle = new_duty_cycle
         elif event.code == "ABS_X":
             new_turn = event.state / 32768
-            print(f"LR: {new_turn}")
+            # print(se_l.get_rot())
+            # print(f"LR: {new_turn}")
             turn = new_turn
     mc_l.set_duty_cycle(duty_cycle * max(0,min(1, (1 + turn))))
     mc_r.set_duty_cycle(duty_cycle * max(0,min(1, (1 - turn))))
