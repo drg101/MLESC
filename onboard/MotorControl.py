@@ -7,6 +7,8 @@ import Accelerometer
 from math import floor
 import os
 import numpy as np
+import signal
+
 
 MODE = 2
 
@@ -17,11 +19,8 @@ if MODE == 1:
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
 elif MODE == 2:
-    import tflite_runtime.interpreter as tflite
-    interpreter = tflite.Interpreter('../analyze/best_model_ever.tflite')
-    interpreter.allocate_tensors()
-    input_details = interpreter.get_input_details()
-    output_details = interpreter.get_output_details()
+    import tensorflow.keras as keras
+    model = keras.models.load_model('../analyze/best_model_ever.h5')
 
 GPIO.setmode(GPIO.BCM)
 
@@ -60,13 +59,21 @@ mc_l.set_dir(dir)
 mc_r = MotorControl(17,27,22,1024)
 mc_r.set_dir(dir)
 
+def handler(a,b):
+    mc_r.set_duty_cycle(0)
+    mc_l.set_duty_cycle(0)
+    exit(1)
+
+signal.signal(signal.SIGINT, handler)
+
 se = SpeedEncoder(20,21,23,24)
 
 if MODE == 0:
-    if os.path.exists("./write.csv"):
-        os.remove("./write.csv") 
-    f = open("./write.csv", "a")
-    f.write("ts,duty_cycle,acc,speed_l,speed_r,speed_avg\n")
+    pass
+    # if os.path.exists("./write.csv"):
+    #     os.remove("./write.csv") 
+    # f = open("./write.csv", "a")
+    # f.write("ts,duty_cycle,acc,speed_l,speed_r,speed_avg\n")
 
 N = 30
 # poll for sensor data
@@ -82,21 +89,23 @@ def poll_sensors():
 
     if MODE == 2:
         LOOK_BACK = 5
-        prev_state = [[0,0,0] for _ in range(LOOK_BACK)]
+        prev_state = [[0,0] for _ in range(LOOK_BACK)]
 
     while 1:
-        se.poll()
+        # se.poll()
 
         #report sensor data N times per second
         curr_time = time()
         if curr_time - old_time > 1 / N:
             try:
                 acc = Accelerometer.get()[1]
+                # print(f'acc: {acc}')
             except:
                 pass
             if turn == 0 and acc != -999 and duty_cycle != 0:
                 # print(f"hmm: {se.get_rot()} accel = {acc}, {turn}, {duty_cycle}")
                 speed = se.get_rot()
+                # print(speed)
                 # f.write(f"{floor(time()*1000)},{duty_cycle},{acc},{speed[0]},{speed[1]},{(speed[0] + speed[1]) / 2}\n")
                 # f.flush()
             old_time = curr_time
@@ -105,7 +114,7 @@ def poll_sensors():
                 if turn == 0 and acc != -999:
                     norm_acc = (acc + 4.02297436) / 8.75475849
                     norm_speed = (((speed[0] + speed[1]) / 2) - 4.73178413) / 538.80656938
-                    norm_requested_speed = requested_speed
+                    norm_requested_speed = 0.66
                     norm_duty_cycle = duty_cycle / 100
 
                     res = 0
@@ -116,13 +125,15 @@ def poll_sensors():
                         res = interpreter.get_tensor(output_details[0]['index'])[0][0]
                     elif MODE == 2:
                         prev_state.pop(0)
-                        prev_state.append([norm_duty_cycle, norm_acc, norm_requested_speed])
+                        prev_state.append([norm_acc, norm_requested_speed])
+                        # print(f'req: {norm_requested_speed}')
                         inp = np.array([prev_state], dtype='float32')
-                        interpreter.set_tensor(input_details[0]['index'], inp)
-                        interpreter.invoke()
-                        res = interpreter.get_tensor(output_details[0]['index'])[0][0]
+                        # print(inp)
+                        res = model.predict(inp)[0][0]
+                        print(res * 100, norm_requested_speed * 100)
             
                     duty_cycle = res * 100
+                    
                     print(abs(norm_requested_speed - norm_speed) * 100)
                 mc_l.set_duty_cycle(duty_cycle * max(0,min(1, (1 + turn))))
                 mc_r.set_duty_cycle(duty_cycle * max(0,min(1, (1 - turn))))
@@ -132,22 +143,24 @@ def poll_sensors():
 sensor_poller_thread = Thread(target=poll_sensors, args=[])
 sensor_poller_thread.start()
 
-
 while 1:
-    events = get_gamepad()
-    for event in events:
-        if event.code == "ABS_RZ":
-            if MODE == 0:
-                new_duty_cycle = round(event.state / 1023 * 100)
-                # print(f"nds {new_duty_cycle}")
-                duty_cycle = new_duty_cycle
-            if MODE == 1:
-                requested_speed = event.state / 1023
-        elif event.code == "ABS_X":
-            new_turn = event.state / 32768
-            # print(se_l.get_rot())
-            # print(f"LR: {new_turn}")
-            turn = new_turn
-    if MODE == 0:
-        mc_l.set_duty_cycle(duty_cycle * max(0,min(1, (1 + turn))))
-        mc_r.set_duty_cycle(duty_cycle * max(0,min(1, (1 - turn))))
+    se.poll()
+
+# while 1:
+#     events = get_gamepad()
+#     for event in events:
+#         if event.code == "ABS_RZ":
+#             if MODE == 0:
+#                 new_duty_cycle = round(event.state / 1023 * 100)
+#                 # print(f"nds {new_duty_cycle}")
+#                 duty_cycle = new_duty_cycle
+#             if MODE == 1 or MODE == 2:
+#                 requested_speed = event.state / 1023
+#         elif event.code == "ABS_X":
+#             new_turn = event.state / 32768
+#             # print(se_l.get_rot())
+#             # print(f"LR: {new_turn}")
+#             turn = new_turn
+#     if MODE == 0:
+#         mc_l.set_duty_cycle(duty_cycle * max(0,min(1, (1 + turn))))
+#         mc_r.set_duty_cycle(duty_cycle * max(0,min(1, (1 - turn))))
